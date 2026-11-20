@@ -1,0 +1,13 @@
+{
+  "zotero_collection_key": "ABCD2345",
+  "zotero_collection_name": "Daily Papers",
+  "discord_channel_id": "123456789012345678",
+  "reader_user": "papers-reader",
+  "language": "en",
+  "model_provider": "codex",
+  "model": "",
+  "requirements_file": "requirements.md",
+  "publish_time": "09:00",
+  "timezone": "Europe/Paris",
+  "max_papers": 2
+}

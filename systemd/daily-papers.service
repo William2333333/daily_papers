@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Papers search and publication
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+TimeoutStartSec=30min
+ExecStart=/bin/bash /opt/daily-papers/run_daily_papers.sh

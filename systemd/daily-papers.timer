@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Daily Papers on the configured schedule
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 Europe/Paris
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
