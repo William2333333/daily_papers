@@ -1,4 +1,4 @@
-# Daily Papers
+# Daily Papers v2.3
 
 [English](README.md)
 
@@ -22,8 +22,9 @@ sudo -v
 图形窗口需要 Linux 桌面和 Tkinter。通过 SSH 操作时，在最后一行加上 `--terminal`，即可使用同一套设置。Debian/Ubuntu 的 Tkinter 软件包通常叫 `python3-tk`。
 
 1. **填写设置**。在「Research」填写研究主题、纳入和排除条件、简读语言及最多篇数。篇数可选 **1–10**，默认 **2**。「Schedule」可以设置每天的启动时间和 IANA 时区，默认 **09:00 / Europe/Paris**。
-2. **保存并试跑**。点击 **Save setup → Run read-only test**。系统会检索、查重并给出预览，试跑不会归档或发送。
-3. **启用调度**。准备好启用真实归档和推送后，点击 **Enable schedule**。设定时间指检索的启动时间，论文会在检索和查重完成后发送。
+2. **保存并检查连接**。点击 **Save setup → Test connections**。即使没有候选，也会分别检查模型、Zotero 分类与读写权限、Discord 频道，以及阅读账号是否能打开发布凭据。模型测试可能产生用量。
+3. **只读试跑**。点击 **Run read-only test**，在论文卡片里查看原文链接、简读和查重结果。试跑不会归档或发送。
+4. **启用调度**。在 Schedule 选择 `auto`（自动归档与推送）或 `review`（定时只生成待审预览），保存并通过检查后点击 **Enable schedule**。审核模式下，在 Operations 勾选论文，再点 **Publish selected**。
 
 简读可选英语、简体中文、法语、西班牙语、日语。论文标题保留原文。模型会被要求每次最多审阅三篇全文，并标明仅阅读摘要的条目。
 
@@ -38,6 +39,12 @@ systemctl is-active daily-papers.service
 
 看到 `inactive` 后重新打开设置向导。界面会预填现有公开配置。如需保留凭据，将 Zotero 用户 ID、密钥和 webhook 一起留空。已有 OpenRouter 密钥也可以留空保留。保存后重新试跑并启用调度，时间和时区会写入 systemd 的定时配置。
 
+## 运行面板与补发
+
+在 **Operations** 查看下一次触发、最近一次运行和批次计数，也可以暂停或恢复定时器。新一轮检索会替换过去的待审预览。勾选发布时，程序会重新查重并核对发布目标。
+
+Zotero 已归档但 Discord 发送未确认时，v2.3 会在发布账号的私有状态文件保留原消息和条目 ID。在 **Discord deliveries** 先确认频道里没有这条消息，再点 **Retry Discord only**。发送成功后会记录 Discord 消息 ID。升级前未保存的补发记录不会自动重建。
+
 ## 运维命令
 
 ```bash
@@ -47,6 +54,10 @@ sudo /bin/bash /opt/daily-papers/run_daily_papers.sh --dry-run
 sudo systemctl disable --now daily-papers.timer
 ```
 
-如需马上执行一次真实发布，运行 `sudo systemctl start daily-papers.service`。它会重新检索，符合条件的新论文可能被归档并发送。
+如需立即运行一次，执行 `sudo systemctl start daily-papers.service`。它会重新检索并按当前模式运行，只有 `auto` 模式会直接发布。
 
 模型密钥存放在阅读账号的私有文件中，Zotero 和 Discord 凭据存放在 `daily-publisher` 的私有文件中，权限均为 `0600`。启用调度前，从阅读身份验证它没有管理员权限且无法读取发布凭据。更多补发说明见 [英文 README](README.md#operations)。
+
+## 自动测试
+
+本地运行 `python3 -B -m unittest discover -s tests -v`。GitHub Actions 会运行离线回归，并用 Xvfb 检查设置窗口和运行面板。测试无需真实密钥。

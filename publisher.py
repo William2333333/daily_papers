@@ -79,7 +79,7 @@ def get_json(url, headers=None):
         return json.load(response)
 
 
-def publish(candidate, settings, api, api_key, webhook):
+def publish(candidate, settings, api, api_key, webhook, on_archive=None):
     preview = preflight(candidate, settings, partial(records, api=api, api_key=api_key))
     if preview["duplicates"]:
         return {"status": "duplicate", "duplicates": preview["duplicates"]}
@@ -110,6 +110,8 @@ def publish(candidate, settings, api, api_key, webhook):
         report_failure("Zotero 写入未确认，请先查库确认结果", error)
         return {"status": "archive_unconfirmed"}
 
+    if on_archive is not None:
+        on_archive(candidate, item_key)
     return send_discord(candidate["discord_message"], webhook, item_key)
 
 

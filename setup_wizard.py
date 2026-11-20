@@ -21,6 +21,7 @@ SOURCE = Path(__file__).resolve().parent
 INSTALL = Path("/opt/daily-papers")
 TIMER_DROP_IN = Path("/etc/systemd/system/daily-papers.timer.d/schedule.conf")
 DRY_RUN = ("/bin/bash", "/opt/daily-papers/run_daily_papers.sh", "--dry-run")
+CONTROL = ("/usr/bin/python3", "-B", "/opt/daily-papers/daily_control.py")
 PROVIDER_KEY = ".config/daily-papers/openrouter.key"
 PUBLISHER_CONFIG = ".config/daily-papers/credentials.json"
 FIELDS = (
@@ -38,6 +39,7 @@ FIELDS = (
     ("publish_time", "Daily send time (HH:MM)"),
     ("timezone", "Time zone (IANA name)"),
     ("max_papers", "Maximum papers per run"),
+    ("publication_mode", "Publication mode"),
 )
 SECRET_FIELDS = {"openrouter_key", "zotero_api_key", "discord_webhook_url"}
 DEFAULTS = {
@@ -47,6 +49,7 @@ DEFAULTS = {
     "publish_time": DEFAULT_TIME,
     "timezone": DEFAULT_TIMEZONE,
     "max_papers": str(DEFAULT_MAX_PAPERS),
+    "publication_mode": "auto",
 }
 PRIVATE_WRITER = """
 import os, sys, tempfile
@@ -107,6 +110,8 @@ def validated(values):
     if not re.fullmatch(r"[0-9]+", data["max_papers"]):
         raise ValueError(f"Enter a paper limit from 1 to {MAX_PAPERS}.")
     data["max_papers"] = paper_limit({"max_papers": int(data["max_papers"])})
+    if data["publication_mode"] not in ("auto", "review"):
+        raise ValueError("Publication mode must be auto or review.")
     publisher_values = (data["zotero_user_id"], data["zotero_api_key"], data["discord_webhook_url"])
     if any(publisher_values):
         validate_credentials(publisher_values)
@@ -153,6 +158,7 @@ def apply_settings(data):
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     settings.update(model_provider=data["model_provider"], model=data["model"], requirements_file="requirements.md")
     settings.update(publish_time=time, timezone=zone.key, max_papers=paper_limit(data))
+    settings["publication_mode"] = data["publication_mode"]
     (INSTALL / "requirements.md").write_text(data["requirements"] + "\n", encoding="utf-8")
     settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     TIMER_DROP_IN.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
@@ -174,6 +180,18 @@ def save(values):
     privileged([
         "/usr/bin/python3", "-B", str(Path(__file__).resolve()), "--apply",
     ], input=json.dumps(data, ensure_ascii=False), text=True)
+
+
+def control_installed():
+    return Path(CONTROL[-1]).is_file()
+
+
+def control(action, *args, payload=None):
+    if not control_installed():
+        raise ValueError("Daily Papers v2.3 is not installed yet. Click Save setup first.")
+    options = {} if payload is None else {"input": json.dumps(payload)}
+    result = privileged((*CONTROL, action, *args), stdout=subprocess.PIPE, text=True, **options)
+    return json.loads(result.stdout)
 
 
 def terminal(values):
@@ -200,8 +218,12 @@ def terminal(values):
         save(values)
         print("Saved.")
         if input("Run a read-only test now? [y/N]: ").strip().lower() == "y":
+            checks = control("health")
+            print(json.dumps(checks, ensure_ascii=False, indent=2))
+            if not all(check["ok"] for check in checks):
+                raise ValueError("Fix the failed connections before enabling the schedule.")
             privileged(DRY_RUN)
-            if input("Enable recurring Zotero archiving and Discord posting? [y/N]: ").strip().lower() == "y":
+            if input("Enable the schedule in the selected mode? [y/N]: ").strip().lower() == "y":
                 privileged(("/usr/bin/systemctl", "enable", "--now", "daily-papers.timer"))
         else:
             print("Run a read-only test before enabling the timer.")
@@ -210,6 +232,7 @@ def terminal(values):
 def gui(values):
     import tkinter as tk
     import webbrowser
+    from operations_gui import show_operations
     from tkinter import messagebox, ttk
 
     try:
@@ -307,10 +330,17 @@ def gui(values):
     field(timing, 1, "publish_time")
     field(timing, 2, "timezone", ("Europe/Paris", "UTC", "Asia/Shanghai", "Asia/Tokyo",
                                   "America/New_York", "America/Los_Angeles", "Europe/London"), editable=True)
+    field(timing, 3, "publication_mode", ("auto", "review"))
+    ttk.Label(timing, text="Auto publishes new matches. Review waits for your selection.").grid(
+        row=4, column=1, sticky="w", pady=4,
+    )
 
     footer = ttk.Frame(window, padding=(18, 10))
     footer.pack(fill="x", side="bottom")
-    status = tk.StringVar(value="Save your setup, then run a read-only test.")
+    status = tk.StringVar(value=(
+        "Save your setup, then run a read-only test." if control_installed()
+        else "Click Save setup to install v2.3 before testing connections or opening Operations."
+    ))
     ttk.Label(footer, textvariable=status, style="Hint.TLabel", wraplength=720).pack(anchor="w", pady=(0, 6))
     actions = ttk.Frame(footer)
     actions.pack(fill="x")
@@ -318,21 +348,27 @@ def gui(values):
     busy = False
     saved = False
     tested = False
+    connections_ok = False
 
     def changed(*_):
-        nonlocal saved, tested
+        nonlocal saved, tested, connections_ok
         if busy:
             return
-        saved = tested = False
+        saved = tested = connections_ok = False
         refresh()
 
     def refresh():
         save_button.configure(state="disabled" if busy else "normal")
         test_button.configure(state="normal" if saved and not busy else "disabled")
-        enable_button.configure(state="normal" if tested and not busy else "disabled")
+        control_available = control_installed() and not busy
+        connection_button.configure(state="normal" if control_available else "disabled")
+        operations_button.configure(state="normal" if control_available else "disabled")
+        enable_button.configure(state="normal" if tested and connections_ok and not busy else "disabled")
 
     def run_task(label, function, on_success):
         nonlocal busy
+        if busy:
+            return
         busy = True
         status.set(label)
         for widget in input_widgets:
@@ -382,31 +418,72 @@ def gui(values):
             return
 
         def done(_):
-            nonlocal saved, tested
+            nonlocal saved, tested, connections_ok
             for name in SECRET_FIELDS | {"zotero_user_id"}:
                 entries[name].set("")
-            saved, tested = True, False
-            status.set("Setup saved. Run a read-only test.")
+            saved, tested, connections_ok = True, False, False
+            status.set("Setup saved. Test connections and run a read-only preview.")
 
         run_task("Saving configuration…", lambda: save(data), done)
 
-    def test():
+    def open_operations():
+        run_task("Loading publication status…", lambda: control("status"),
+                 lambda data: show_operations(window, data, operation, open_operations))
+
+    def operation(title, command, panel):
+        name, argument = command
+
+        def apply():
+            if name == "approve":
+                return control("approve", payload=argument)
+            if name == "retry":
+                return control("retry", argument)
+            flags = ("disable", "--now") if name == "pause" else ("enable", "--now")
+            privileged(("/usr/bin/systemctl", *flags, "daily-papers.timer"))
+            return None
+
         def done(result):
+            status.set("Operation completed.")
+            if result:
+                messagebox.showinfo("Daily Papers", "Operation completed. See the refreshed status and delivery records.", parent=panel)
+            if panel.winfo_exists():
+                panel.destroy()
+            window.after_idle(open_operations)
+
+        run_task(title + "…", apply, done)
+
+    def test_connections():
+        nonlocal connections_ok
+        connections_ok = False
+
+        def done(checks):
+            nonlocal connections_ok
+            connections_ok = all(check["ok"] for check in checks)
+            lines = []
+            for check in checks:
+                detail = check.get("detail")
+                state = "Passed" if check["ok"] else "Failed"
+                lines.append(f"{check['name']}: {state}" + (f" — {detail}" if detail else ""))
+            status.set("Connection checks passed." if connections_ok else "Some connection checks failed.")
+            messagebox.showinfo("Connection checks", "\n".join(lines))
+
+        run_task("Checking model, Zotero, Discord and credential isolation…", lambda: control("health"), done)
+
+    def test():
+        nonlocal tested
+        tested = False
+
+        def done(_):
             nonlocal tested
             tested = True
-            status.set("Read-only test finished. Review the preview before enabling the timer.")
-            preview = tk.Toplevel(window)
-            preview.title("Daily Papers · Read-only preview")
-            output = tk.Text(preview, width=78, height=22, wrap="word", padx=12, pady=12)
-            output.pack(fill="both", expand=True)
-            output.insert("1.0", result.stdout or "No output.")
-            output.configure(state="disabled")
+            status.set("Read-only test finished. Inspect the Review papers tab.")
+            window.after_idle(open_operations)
 
         run_task("Searching and checking the batch. This can take several minutes…",
-                 lambda: privileged(DRY_RUN, stdout=subprocess.PIPE, text=True), done)
+                 lambda: privileged(DRY_RUN), done)
 
     def enable():
-        if not messagebox.askyesno("Enable schedule", "Enable recurring Zotero archiving and Discord posting?"):
+        if not messagebox.askyesno("Enable schedule", f"Enable the timer in {entries['publication_mode'].get()} mode?"):
             return
 
         def done(_):
@@ -418,7 +495,9 @@ def gui(values):
     save_button = ttk.Button(actions, text="Save setup", style="Primary.TButton", command=submit)
     test_button = ttk.Button(actions, text="Run read-only test", command=test)
     enable_button = ttk.Button(actions, text="Enable schedule", command=enable)
-    for button in (save_button, test_button, enable_button):
+    connection_button = ttk.Button(actions, text="Test connections", command=test_connections)
+    operations_button = ttk.Button(actions, text="Operations", command=open_operations)
+    for button in (save_button, connection_button, test_button, enable_button, operations_button):
         button.pack(side="left", padx=(0, 8))
     for variable in entries.values():
         variable.trace_add("write", changed)

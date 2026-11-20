@@ -1,4 +1,4 @@
-# Daily Papers
+# Daily Papers v2.3
 
 [简体中文](README.zh-CN.md)
 
@@ -22,8 +22,9 @@ sudo -v
 The app requires a graphical session and Python Tkinter (usually `python3-tk` on Debian/Ubuntu). On SSH or a headless host, add `--terminal` to the same command.
 
 1. Enter your research requirements, model, and destinations in the form. Choose a review language and a maximum of **1–10 papers per run**, and enter the daily start time and IANA time zone. Defaults are two papers, 09:00, and `Europe/Paris`.
-2. Select **Save setup**, then **Run read-only test**. Saving installs the service and writes the settings. The test searches and previews the results without archiving or posting.
-3. Select **Enable schedule** when ready for recurring archiving and posting. The configured time is the start of the search. Delivery follows when the run completes.
+2. Select **Save setup**, then **Test connections**. The app independently checks the model, Zotero collection and key permissions, Discord channel, and whether the reader can open the publisher credential file. This works without any candidates. A model check can incur provider usage.
+3. Select **Run read-only test**, then review the paper cards. The test performs a fresh search and deduplicates its results without archiving or posting.
+4. Under **Schedule**, choose `auto` for recurring archiving and sending, or `review` to generate a preview on each scheduled run. Then select **Enable schedule**. The configured time starts the search. In review mode, select eligible papers and click **Publish selected** in Operations.
 
 Review language options are English, 简体中文, Français, Español, and 日本語. Paper titles retain their original spelling. The model is asked to review at most three full texts and label abstract-only reviews.
 
@@ -40,6 +41,11 @@ Wait for `inactive`, then reopen the setup app. Existing public settings are loa
 
 ## Operations
 
+Open **Operations** to see the next and last run, the last batch's counts, and pending or confirmed Discord deliveries. Use **Pause timer** or **Resume timer** to change scheduling. A newer search replaces the previous review preview. Approving papers rechecks Zotero and validates the destination before publication.
+
+If Discord fails after Zotero archives a paper, v2.3 retains the candidate text and Zotero item ID in the publisher's private state. In **Discord deliveries**, verify the message is absent in the channel, then click **Retry Discord only**. A confirmed send stores its Discord message ID. v2.3 cannot reconstruct delivery records that were lost before the upgrade.
+
+
 ```bash
 systemctl list-timers --all daily-papers.timer
 sudo journalctl -u daily-papers.service -n 80 --no-pager
@@ -47,8 +53,12 @@ sudo /bin/bash /opt/daily-papers/run_daily_papers.sh --dry-run
 sudo systemctl disable --now daily-papers.timer
 ```
 
-Use `sudo systemctl start daily-papers.service` to explicitly run a live publication at any time. This performs a fresh search and may archive and send new candidates.
+Use `sudo systemctl start daily-papers.service` to start a fresh run in the saved mode. Only `auto` posts directly.
 
 The reader and publisher use distinct Linux accounts. The reader must lack administrative access and access to the publisher’s private credentials. Verify that isolation from the reader account before enabling scheduled publication. The setup app stores OpenRouter credentials under the reader account and Zotero/Discord credentials under `daily-publisher`, with file mode `0600`.
 
 An empty batch means no suitable papers were found. Nonempty batches check Zotero by DOI, arXiv ID, and normalized title, and verify the webhook channel. If a result is `discord_unconfirmed`, Zotero already saved the item. Check Discord before retrying. With the original candidate JSON, run `publisher.py --resume-discord ITEM_KEY --discord-channel-id CHANNEL_ID --credentials-file PATH CANDIDATE.json` under the publisher account to retry Discord only.
+
+## Tests
+
+Run `python3 -B -m unittest discover -s tests -v`. The GitHub Actions workflow runs the offline suite and opens both GUI windows under Xvfb. The tests require no service credentials.

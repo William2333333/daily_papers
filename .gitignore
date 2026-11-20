@@ -1,0 +1,8 @@
+/settings.json
+credentials.json
+.env
+.env.*
+__pycache__/
+*.pyc
+*.log
+openrouter.key

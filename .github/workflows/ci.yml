@@ -1,0 +1,16 @@
+name: Daily Papers tests
+on: [push, pull_request]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop test dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb xauth
+      - name: Check shell syntax
+        run: |
+          bash -n install.sh
+          bash -n run_daily_papers.sh
+      - name: Run offline tests
+        run: xvfb-run -a /usr/bin/python3 -B -m unittest discover -s tests -v

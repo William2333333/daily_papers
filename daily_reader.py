@@ -84,7 +84,7 @@ def read_with_openrouter(prompt, model):
     body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt + """
-Use web search, and fetch primary-source pages as needed. Only say full text
+For literature searches, use web search and fetch primary-source pages as needed. Only say full text
 if you accessed the paper body. Return only JSON matching this schema:
 """ + json.dumps(SCHEMA)}],
         "tools": [{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}],
@@ -109,12 +109,19 @@ def main():
     parser.add_argument("--provider", choices=("codex", "openrouter"))
     parser.add_argument("--model")
     parser.add_argument("--requirements", type=Path)
+    parser.add_argument("--check-provider", action="store_true")
     args = parser.parse_args()
     try:
         settings = json.loads(args.settings.read_text(encoding="utf-8")) if args.settings.exists() else {}
         language = LANGUAGES[args.language or settings.get("language", "en")]
         provider = args.provider or settings.get("model_provider", "codex")
         model = args.model if args.model is not None else settings.get("model", "")
+        backend = {"codex": read_with_codex, "openrouter": read_with_openrouter}[provider]
+        if args.check_provider:
+            result = backend("Model connectivity test. Return exactly a JSON object with an empty candidates array. Do not search or fetch webpages.", model)
+            if result.get("candidates") != []:
+                raise ValueError("Unexpected model connectivity response.")
+            return 0
         configured_path = args.settings.parent / settings.get("requirements_file", "requirements.md")
         requirements_path = args.requirements or configured_path
         requirements = requirements_path.read_text(encoding="utf-8").strip()
@@ -126,7 +133,6 @@ def main():
             date=datetime.now(zone).date(), timezone=zone.key,
             language=language, requirements=requirements, max_papers=limit,
         )
-        backend = {"codex": read_with_codex, "openrouter": read_with_openrouter}[provider]
         candidates = backend(prompt, model)["candidates"]
         if not isinstance(candidates, list):
             raise ValueError("Expected a JSON candidate array")

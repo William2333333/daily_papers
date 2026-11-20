@@ -9,5 +9,6 @@
   "requirements_file": "requirements.md",
   "publish_time": "09:00",
   "timezone": "Europe/Paris",
-  "max_papers": 2
+  "max_papers": 2,
+  "publication_mode": "auto"
 }

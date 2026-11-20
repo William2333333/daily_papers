@@ -38,7 +38,7 @@ fi
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 install -d -o root -g root -m 0755 /opt/daily-papers
-install -o root -g root -m 0644   daily_settings.py daily_reader.py publisher.py publisher_preflight.py publisher_batch.py   run_daily_papers.sh /opt/daily-papers/
+install -o root -g root -m 0644   daily_settings.py daily_control.py daily_reader.py publisher.py publisher_state.py publisher_preflight.py publisher_batch.py   run_daily_papers.sh /opt/daily-papers/
 if [[ ! -e /opt/daily-papers/requirements.md ]]; then
   install -o root -g root -m 0644 requirements.md /opt/daily-papers/
 fi
